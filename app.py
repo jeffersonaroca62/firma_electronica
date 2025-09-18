@@ -128,8 +128,6 @@ def firmar():
     session['p12_file'] = p12_file.filename
     session['p12_password'] = p12_password
 
-    qr_preview_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{pdf_file.filename}_preview_qr.png")
-
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
     nombre_titular = "DESCONOCIDO"
     try:
@@ -147,6 +145,7 @@ def firmar():
     except Exception:
         nombre_titular = certificate.subject.rfc4514_string()
 
+    qr_preview_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{pdf_file.filename}_preview_qr.png")
     qr_text_preview = (
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: \n"
@@ -168,117 +167,115 @@ def firmar():
 @app.route("/generar_pdf_firmado", methods=["POST"])
 @login_required
 def generar_pdf_firmado():
-    sig_x = float(request.form.get("sig_x", 20))
-    sig_y = float(request.form.get("sig_y", 20))
-    sig_page = int(request.form.get("sig_page", 1)) - 1
-
-    pdf_file = session.get('pdf_file')
-    p12_file = session.get('p12_file')
-    p12_password = session.get('p12_password')
-
-    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
-    p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
-
-    fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
-
-    with open(p12_path, "rb") as f:
-        p12_data = f.read()
-    _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
-
-    nombre_titular = "DESCONOCIDO"
     try:
-        given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
-        surnames = certificate.subject.get_attributes_for_oid(NameOID.SURNAME)
-        if given_names and surnames:
-            nombres = " ".join([a.value for a in given_names])
-            apellidos = " ".join([a.value for a in surnames])
-            nombre_titular = f"{nombres} {apellidos}"
-        else:
-            for attribute in certificate.subject:
-                if attribute.oid.dotted_string == "2.5.4.3":
-                    nombre_titular = attribute.value
-                    break
-    except Exception:
-        nombre_titular = certificate.subject.rfc4514_string()
+        sig_x = float(request.form.get("sig_x", 20))
+        sig_y = float(request.form.get("sig_y", 20))
+        sig_page = int(request.form.get("sig_page", 1)) - 1
 
-    base_signer = signers.SimpleSigner.load_pkcs12(
-        pfx_file=p12_path,
-        passphrase=p12_password.encode()
-    )
+        pdf_file = session.get('pdf_file')
+        p12_file = session.get('p12_file')
+        p12_password = session.get('p12_password')
 
-    class FixedDateSigner(signers.SimpleSigner):
-        def __init__(self, base, ts):
-            super().__init__(
-                signing_cert=base.signing_cert,
-                signing_key=base.signing_key,
-                cert_registry=base.cert_registry,
-                signature_mechanism=base.signature_mechanism,
-                prefer_pss=base.prefer_pss
-            )
-            self.fixed_ts = ts
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
+        p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
-        def sign(self, data_digest, digest_algorithm, timestamp=None,
-                 revocation_info=None, use_pades=False, timestamper=None):
-            return super().sign(
-                data_digest,
-                digest_algorithm,
-                timestamp=self.fixed_ts,
-                revocation_info=revocation_info,
-                use_pades=use_pades,
-                timestamper=timestamper
-            )
+        fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
 
-    cms_signer = FixedDateSigner(base_signer, fixed_dt)
-    nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
-    signature_meta = PdfSignatureMetadata(
-        field_name=nombre_campo,
-        name=nombre_titular,
-        reason="",
-        location="",
-        app_build_props=BuildProps(name="Rúbrica 3.0")
-    )
+        with open(p12_path, "rb") as f:
+            p12_data = f.read()
+        _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
 
-    doc = fitz.open(pdf_path)
-    if sig_page >= len(doc):
-        sig_page = 0
-    page = doc[sig_page]
+        nombre_titular = "DESCONOCIDO"
+        try:
+            given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
+            surnames = certificate.subject.get_attributes_for_oid(NameOID.SURNAME)
+            if given_names and surnames:
+                nombres = " ".join([a.value for a in given_names])
+                apellidos = " ".join([a.value for a in surnames])
+                nombre_titular = f"{nombres} {apellidos}"
+            else:
+                for attribute in certificate.subject:
+                    if attribute.oid.dotted_string == "2.5.4.3":
+                        nombre_titular = attribute.value
+                        break
+        except Exception:
+            nombre_titular = certificate.subject.rfc4514_string()
 
-    # --- Generar QR ---
-    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
-    qr_text = (
-        f"FIRMADO POR: {nombre_titular}\n"
-        f"RAZON: {signature_meta.reason}\n"
-        f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {fixed_dt.isoformat()}\n"
-        f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
-        f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
-    )
-    qr.add_data(qr_text)
-    qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+        base_signer = signers.SimpleSigner.load_pkcs12(
+            pfx_file=p12_path,
+            passphrase=p12_password.encode()
+        )
 
-    img_byte_arr = io.BytesIO()
-    qr_img.save(img_byte_arr, format='PNG')
-    img_byte_arr.seek(0)
+        class FixedDateSigner(signers.SimpleSigner):
+            def __init__(self, base, ts):
+                super().__init__(
+                    signing_cert=base.signing_cert,
+                    signing_key=base.signing_key,
+                    cert_registry=base.cert_registry,
+                    signature_mechanism=base.signature_mechanism,
+                    prefer_pss=base.prefer_pss
+                )
+                self.fixed_ts = ts
 
-    # --- Agregar firma visual en PDF ---
-    pix = fitz.Pixmap(fitz.open("png", img_byte_arr.read()))
-    rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
-    page.insert_image(rect, pixmap=pix, overlay=True)
-    doc.saveIncr()  # Guardar incrementos
+            def sign(self, data_digest, digest_algorithm, timestamp=None,
+                     revocation_info=None, use_pades=False, timestamper=None):
+                return super().sign(
+                    data_digest,
+                    digest_algorithm,
+                    timestamp=self.fixed_ts,
+                    revocation_info=revocation_info,
+                    use_pades=use_pades,
+                    timestamper=timestamper
+                )
 
-    # --- Firmar digitalmente ---
-    out_pdf = io.BytesIO()
-    with open(pdf_path, "rb") as f:
-        w = IncrementalPdfFileWriter(f)
-        # --- Corregido: quitar page_number ---
-        sig_field = SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
-        append_signature_field(w, sig_field, sig_page)
-        signer = PdfSigner(signature_meta, signer=cms_signer)
-        signer.sign_pdf(w, output=out_pdf)
+        cms_signer = FixedDateSigner(base_signer, fixed_dt)
+        nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
+        signature_meta = PdfSignatureMetadata(
+            field_name=nombre_campo,
+            name=nombre_titular,
+            reason="",
+            location="",
+            app_build_props=BuildProps(name="Rúbrica 3.0")
+        )
 
-    out_pdf.seek(0)
-    return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
+        doc = fitz.open(pdf_path)
+        if sig_page >= len(doc):
+            sig_page = 0
+        page = doc[sig_page]
+
+        # --- Generar QR ---
+        qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
+        qr_text = (
+            f"FIRMADO POR: {nombre_titular}\n"
+            f"RAZON: {signature_meta.reason}\n"
+            f"LOCALIZACION: {signature_meta.location}\n"
+            f"FECHA: {fixed_dt.isoformat()}\n"
+            f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
+            f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
+        )
+        qr.add_data(qr_text)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+
+        rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
+        page.insert_image(rect, stream=img_byte_arr, overlay=True)
+        doc.saveIncr()
+
+        out_pdf = io.BytesIO()
+        with open(pdf_path, "rb") as f:
+            w = IncrementalPdfFileWriter(f)
+            append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40)))
+            signer = PdfSigner(signature_meta, signer=cms_signer)
+            signer.sign_pdf(w, output=out_pdf)
+
+        out_pdf.seek(0)
+        return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
+
+    except Exception as e:
+        return f"Error al generar PDF firmado: {str(e)}", 500
 
 # --- Ruta uploads ---
 @app.route('/uploads/<filename>')
