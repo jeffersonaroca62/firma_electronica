@@ -13,7 +13,6 @@ from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
 from pyhanko.sign.signers.pdf_byterange import BuildProps
-from textwrap import wrap
 from flask_bcrypt import Bcrypt
 import sqlite3
 from functools import wraps
@@ -258,25 +257,23 @@ def generar_pdf_firmado():
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
 
-    # --- Guardar temporalmente el PNG ---
-    tmp_png_path = os.path.join(app.config['UPLOAD_FOLDER'], f"tmp_{uuid.uuid4().hex}.png")
-    with open(tmp_png_path, "wb") as tmp_png:
-        qr_img.save(tmp_png, format="PNG")
+    img_byte_arr = io.BytesIO()
+    qr_img.save(img_byte_arr, format='PNG')
+    img_byte_arr.seek(0)
 
-    # --- Insertar firma visual en PDF ---
-    pix = fitz.Pixmap(tmp_png_path)
+    # --- Agregar firma visual en PDF ---
+    pix = fitz.Pixmap(fitz.open("png", img_byte_arr.read()))
     rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
     page.insert_image(rect, pixmap=pix, overlay=True)
     doc.saveIncr()  # Guardar incrementos
-
-    # --- Borrar PNG temporal ---
-    os.remove(tmp_png_path)
 
     # --- Firmar digitalmente ---
     out_pdf = io.BytesIO()
     with open(pdf_path, "rb") as f:
         w = IncrementalPdfFileWriter(f)
-        append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40), page_number=sig_page))
+        # --- Corregido: quitar page_number ---
+        sig_field = SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
+        append_signature_field(w, sig_field, sig_page)
         signer = PdfSigner(signature_meta, signer=cms_signer)
         signer.sign_pdf(w, output=out_pdf)
 
