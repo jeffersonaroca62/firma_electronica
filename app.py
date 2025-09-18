@@ -129,41 +129,7 @@ def firmar():
     session['p12_file'] = p12_file.filename
     session['p12_password'] = p12_password
 
-    qr_preview_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{pdf_file.filename}_preview_qr.png")
-
-    _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
-    nombre_titular = "DESCONOCIDO"
-    try:
-        given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
-        surnames = certificate.subject.get_attributes_for_oid(NameOID.SURNAME)
-        if given_names and surnames:
-            nombres = " ".join([a.value for a in given_names])
-            apellidos = " ".join([a.value for a in surnames])
-            nombre_titular = f"{nombres} {apellidos}"
-        else:
-            for attribute in certificate.subject:
-                if attribute.oid.dotted_string == "2.5.4.3":
-                    nombre_titular = attribute.value
-                    break
-    except Exception:
-        nombre_titular = certificate.subject.rfc4514_string()
-
-    qr_text_preview = (
-        f"FIRMADO POR: {nombre_titular}\n"
-        f"RAZON: \n"
-        f"LOCALIZACION: \n"
-        f"FECHA: {datetime.now().isoformat()}\n"
-        f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
-        f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
-    )
-
-    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
-    qr.add_data(qr_text_preview)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
-    img.save(qr_preview_path)
-
-    return render_template("seleccionar_firma.html", pdf_file=pdf_file.filename, nombre=nombre_titular, username=session.get('username'))
+    return render_template("seleccionar_firma.html", pdf_file=pdf_file.filename, username=session.get('username'))
 
 # --- Generar PDF firmado final ---
 @app.route("/generar_pdf_firmado", methods=["POST"])
@@ -262,19 +228,25 @@ def generar_pdf_firmado():
     qr_img.save(img_byte_arr, format='PNG')
     img_byte_arr.seek(0)
 
-    # --- Agregar firma visual en PDF ---
     pix = fitz.Pixmap(fitz.open("png", img_byte_arr.read()))
     rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
     page.insert_image(rect, pixmap=pix, overlay=True)
-    doc.saveIncr()  # Guardar incrementos
+
+    # --- Guardar PDF temporal para pyhanko ---
+    temp_pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{uuid.uuid4().hex}.pdf")
+    doc.save(temp_pdf_path)
+    doc.close()
 
     # --- Firmar digitalmente ---
     out_pdf = io.BytesIO()
-    with open(pdf_path, "rb") as f:
+    with open(temp_pdf_path, "rb") as f:
         w = IncrementalPdfFileWriter(f)
         append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40), page_number=sig_page))
         signer = PdfSigner(signature_meta, signer=cms_signer)
         signer.sign_pdf(w, output=out_pdf)
+
+    # --- Limpiar archivo temporal ---
+    os.remove(temp_pdf_path)
 
     out_pdf.seek(0)
     return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
