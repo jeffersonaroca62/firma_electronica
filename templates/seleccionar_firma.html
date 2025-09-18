@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Seleccionar lugar de firma</title>
+<style>
+body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 20px; }
+.navbar { margin-bottom: 20px; background: #f8f9fa; padding: 10px 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+#pdf-container { position: relative; display: inline-block; border: 1px solid #ccc; background: white; }
+#pdf-canvas { display: block; }
+#signature-block {
+    position: absolute;
+    cursor: move;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+#signature-block img {
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+.signature-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    white-space: nowrap;
+}
+.signature-text .line {
+    font-family: Courier, monospace;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+    white-space: nowrap;
+}
+.signature-text .line.bold { font-weight: bold; color: black; }
+.signature-text .line.small { font-weight: normal; color: #000; }
+
+button { margin-top: 10px; padding: 10px 20px; font-size: 16px;
+    background-color: #0d6efd; color: white; border: none; border-radius: 5px; cursor: pointer; }
+button:hover { background-color: #0b5ed7; }
+#page-selector { margin-bottom: 10px; font-size: 16px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.9.179/pdf.min.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <span>Hola, {{ username }}!</span>
+  <a href="/logout" style="padding: 6px 12px; background-color: #dc3545; color: white; border-radius: 5px; text-decoration: none;">Cerrar sesión</a>
+</nav>
+
+<h3>Arrastra el QR y texto para ubicar la firma</h3>
+
+<label for="page-selector">Selecciona página:</label>
+<select id="page-selector"></select>
+
+<div id="pdf-container">
+    <canvas id="pdf-canvas"></canvas>
+    <div id="signature-block">
+        <img src="/uploads/{{ pdf_file }}_preview_qr.png" alt="QR">
+        <div class="signature-text">
+            <div class="line small">Firmado electrónicamente por:</div>
+
+            <!-- Nombres y apellidos según lógica app.py -->
+            <div class="line bold">
+                {% set partes = nombre.split() %}
+                {% if partes|length > 2 %}
+                    {{ partes[:2]|join(' ') }}
+                {% elif partes|length == 2 %}
+                    {{ partes[0] }}
+                {% else %}
+                    {{ nombre }}
+                {% endif %}
+            </div>
+            <div class="line bold">
+                {% if partes|length > 2 %}
+                    {{ partes[2:]|join(' ') }}
+                {% elif partes|length == 2 %}
+                    {{ partes[1] }}
+                {% else %}
+                    &nbsp;
+                {% endif %}
+            </div>
+
+            <div class="line small">Validar únicamente con FirmaEC</div>
+        </div>
+    </div>
+</div>
+
+<button onclick="enviarCoordenadas()">Confirmar ubicación y generar documento firmado</button>
+
+<script>
+const canvas = document.getElementById('pdf-canvas');
+const ctx = canvas.getContext('2d');
+const block = document.getElementById('signature-block');
+const pageSelector = document.getElementById('page-selector');
+
+let pdfDoc = null;
+let scale = 1.2;
+let currentPage = 1;
+
+// --- Tamaños PDF ---
+const qrSizePdf = 40; // QR en puntos
+const nombreFontPdf = 6.5;
+const textoFontPdf = 3.5;
+
+// --- Renderizar página PDF ---
+function renderPage(pageNum){
+    pdfDoc.getPage(pageNum).then(page => {
+        const viewport = page.getViewport({ scale: scale });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        page.render({ canvasContext: ctx, viewport: viewport });
+
+        const pdfViewport = page.getViewport({ scale: 1 });
+        window.pdfPageWidthPoints = pdfViewport.width;
+        window.pdfPageHeightPoints = pdfViewport.height;
+
+        currentPage = pageNum;
+        block.style.left = '20px';
+        block.style.top = '20px';
+        renderSignatureBlock();
+    });
+}
+
+// --- Escalar QR y texto igual que PDF ---
+function renderSignatureBlock(){
+    const qrPx = qrSizePdf * scale;
+    const nombrePx = nombreFontPdf * scale;
+    const textoPx = textoFontPdf * scale;
+
+    block.style.width = (qrPx + 200) + "px";
+    block.style.height = qrPx + "px";
+
+    const img = block.querySelector("img");
+    img.style.width = qrPx + "px";
+    img.style.height = qrPx + "px";
+
+    const linesBold = block.querySelectorAll(".line.bold");
+    linesBold.forEach(l => l.style.fontSize = nombrePx + "px");
+    const linesSmall = block.querySelectorAll(".line.small");
+    linesSmall.forEach(l => l.style.fontSize = textoPx + "px");
+}
+
+// --- Cargar PDF ---
+pdfjsLib.getDocument("/uploads/{{ pdf_file }}").promise.then(pdf => {
+    pdfDoc = pdf;
+    for(let i=1;i<=pdf.numPages;i++){
+        const option = document.createElement('option');
+        option.value = i;
+        option.text = i;
+        pageSelector.appendChild(option);
+    }
+    renderPage(1);
+});
+
+// --- Cambiar página ---
+pageSelector.onchange = function(){
+    renderPage(parseInt(this.value));
+}
+
+// --- Drag & Drop ---
+let offsetX, offsetY;
+block.onmousedown = function(e){
+    offsetX = e.offsetX;
+    offsetY = e.offsetY;
+    document.onmousemove = function(e){
+        const rect = canvas.getBoundingClientRect();
+        let x = e.clientX - rect.left - offsetX;
+        let y = e.clientY - rect.top - offsetY;
+
+        x = Math.max(0, Math.min(x, canvas.width - block.offsetWidth));
+        y = Math.max(0, Math.min(y, canvas.height - block.offsetHeight));
+
+        block.style.left = x + 'px';
+        block.style.top = y + 'px';
+    }
+}
+document.onmouseup = function(){ document.onmousemove = null; }
+
+// --- Enviar coordenadas exactas a PDF ---
+function enviarCoordenadas(){
+    const rect = canvas.getBoundingClientRect();
+    const x = parseFloat(block.style.left) * (window.pdfPageWidthPoints / rect.width);
+    const y = parseFloat(block.style.top) * (window.pdfPageHeightPoints / rect.height);
+    const page = currentPage;
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/generar_pdf_firmado';
+
+    const inputX = document.createElement('input'); inputX.name='sig_x'; inputX.value=x; form.appendChild(inputX);
+    const inputY = document.createElement('input'); inputY.name='sig_y'; inputY.value=y; form.appendChild(inputY);
+    const inputPage = document.createElement('input'); inputPage.name='sig_page'; inputPage.value=page; form.appendChild(inputPage);
+
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+
+</body>
+</html>

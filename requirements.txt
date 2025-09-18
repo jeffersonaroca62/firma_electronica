@@ -1,0 +1,9 @@
+Flask>=2.2,<3
+Flask-Bcrypt>=1.0.1,<2
+pyhanko>=0.31.0
+PyMuPDF>=1.26.4
+qrcode>=8.2
+cryptography>=46.0.1
+freezegun>=1.5.5
+gunicorn>=20.1.0
+Pillow>=10.0.0

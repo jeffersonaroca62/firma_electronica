@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Firmador PDF con QR</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body { background-color: #f8f9fa; }
+.hero { min-height: 90vh; display: flex; align-items: center; justify-content: center; }
+.upload-box { background: white; border-radius: 15px; padding: 40px; text-align: center; box-shadow: 0px 4px 10px rgba(0,0,0,0.1); }
+.upload-box h2 { font-weight: bold; }
+.btn-upload { font-size: 18px; padding: 12px 30px; border-radius: 10px; }
+.icon { font-size: 80px; color: #6f42c1; }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-light bg-light mb-3">
+  <div class="container-fluid">
+    <span class="navbar-text">
+      Bienvenido, {{ username }}
+    </span>
+    <a href="/logout" class="btn btn-danger">Cerrar sesión</a>
+  </div>
+</nav>
+
+<div class="container hero">
+<div class="upload-box col-md-6">
+<div class="icon">✍️</div>
+<h2 class="mt-3">Rellena y firma tu PDF</h2>
+<p class="text-muted">
+Paso 1: Selecciona tu PDF.<br>
+Paso 2: Selecciona tu certificado P12 o PFX.<br>
+Paso 3: Ingresa la contraseña del certificado.<br>
+Paso 4: Haz clic en “Generar documento firmado”.
+</p>
+<form id="firmarForm" method="POST" action="/firmar" enctype="multipart/form-data">
+<div class="mb-3">
+<label class="form-label">Selecciona PDF</label>
+<input type="file" class="form-control" name="pdf" accept=".pdf" required>
+</div>
+<div class="mb-3">
+<label class="form-label">Selecciona Certificado (.p12/.pfx)</label>
+<input type="file" class="form-control" name="p12" accept=".p12,.pfx" required>
+</div>z
+<div class="mb-3">
+<label class="form-label">Contraseña del certificado</label>
+<input type="password" class="form-control" name="p12_password" placeholder="Contraseña" required>
+</div>
+<button type="submit" class="btn btn-primary btn-upload">📄 Generar documento firmado</button>
+</form>
+{% if error %}
+<div class="alert alert-danger mt-3">{{ error }}</div>
+{% endif %}
+</div>
+</div>
+
+</body>
+</html>
