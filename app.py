@@ -192,17 +192,12 @@ def generar_pdf_firmado():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
     p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
-    # ------------------ Hora local de la laptop ------------------
-    local_fecha = request.form.get("local_fecha")
-    from dateutil import parser
-    fixed_dt = parser.isoparse(local_fecha)  # convierte string ISO a datetime con zona horaria
-
-    # ------------------ Leer certificado ------------------
+    # Leer certificado
     with open(p12_path, "rb") as f:
         p12_data = f.read()
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
 
-    # ------------------ Obtener nombre del titular ------------------
+    # Obtener nombre del titular
     nombre_titular = "DESCONOCIDO"
     try:
         given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
@@ -219,7 +214,13 @@ def generar_pdf_firmado():
     except Exception:
         nombre_titular = certificate.subject.rfc4514_string()
 
-    # ------------------ Cargar signer ------------------
+    # Hora local de la laptop con zona horaria
+    from datetime import datetime
+    import time
+    local_dt = datetime.now().astimezone()  # incluye zona horaria automáticamente
+    fecha_con_zona = local_dt.isoformat()
+
+    # Cargar signer
     base_signer = signers.SimpleSigner.load_pkcs12(
         pfx_file=p12_path,
         passphrase=p12_password.encode()
@@ -247,7 +248,7 @@ def generar_pdf_firmado():
                 timestamper=timestamper
             )
 
-    cms_signer = FixedDateSigner(base_signer, fixed_dt)
+    cms_signer = FixedDateSigner(base_signer, local_dt)
     nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
     signature_meta = PdfSignatureMetadata(
         field_name=nombre_campo,
@@ -257,19 +258,19 @@ def generar_pdf_firmado():
         app_build_props=BuildProps(name="Rúbrica 3.0")
     )
 
-    # ------------------ Abrir PDF ------------------
+    # Abrir PDF con PyMuPDF
     doc = fitz.open(pdf_path)
     if sig_page >= len(doc):
         sig_page = 0
     page = doc[sig_page]
 
-    # ------------------ Generar QR ------------------
+    # Generar QR
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: {signature_meta.reason}\n"
         f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {local_fecha}\n"  # hora local de laptop
+        f"FECHA: {fecha_con_zona}\n"  # hora local con zona horaria
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
     )
@@ -284,7 +285,7 @@ def generar_pdf_firmado():
     rect_qr = fitz.Rect(sig_x, sig_y, sig_x + qr_size, sig_y + qr_size)
     page.insert_image(rect_qr, stream=qr_buffer)
 
-    # ------------------ Insertar texto junto al QR ------------------
+    # Insertar texto junto al QR
     fontname = "Courier"
     nombre_fontsize = 6.5
     texto_fontsize = 3.5
@@ -327,13 +328,13 @@ def generar_pdf_firmado():
         spacing = -2 if texto in [nombres_txt, apellidos_txt] else 0.5
         y_text = insertar_linea(page, texto, x_text, y_text, fontsize, bold, spacing=spacing)
 
-    # ------------------ Guardar PDF ------------------
+    # Guardar PDF en memoria
     pdf_buffer = io.BytesIO()
     doc.save(pdf_buffer)
     doc.close()
     pdf_buffer.seek(0)
 
-    # ------------------ Firmar PDF con PyHanko + timestamp ------------------
+    # Firmar PDF con PyHanko + timestamp oficial RFC3161
     w = IncrementalPdfFileWriter(pdf_buffer)
     append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo))
     out_pdf = io.BytesIO()
@@ -345,6 +346,7 @@ def generar_pdf_firmado():
     signer.sign_pdf(w, output=out_pdf)
     out_pdf.seek(0)
 
+    # Mantener descarga igual que antes
     return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
 
 # ------------------ Ejecutar ------------------
