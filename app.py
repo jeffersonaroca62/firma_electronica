@@ -192,7 +192,7 @@ def generar_pdf_firmado():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
     p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
-    fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
+    fixed_dt = datetime.now()  # Hora exacta de tu laptop
 
     with open(p12_path, "rb") as f:
         p12_data = f.read()
