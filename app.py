@@ -194,7 +194,7 @@ def generar_pdf_firmado():
 
     # Hora local de tu laptop
     from zoneinfo import ZoneInfo
-    fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
+    fixed_dt = datetime.now()
 
     # Leer certificado
     with open(p12_path, "rb") as f:
@@ -269,7 +269,7 @@ def generar_pdf_firmado():
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: {signature_meta.reason}\n"
         f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {fixed_dt.isoformat()}\n"
+        f"FECHA: {datetime.now().isoformat()}\n"
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
     )
