@@ -17,7 +17,7 @@ from textwrap import wrap
 from flask_bcrypt import Bcrypt
 import sqlite3
 from functools import wraps
-from zoneinfo import ZoneInfo  # Para hora local
+from zoneinfo import ZoneInfo
 
 # ------------------ Config Flask ------------------
 app = Flask(__name__)
@@ -162,6 +162,7 @@ def firmar():
     img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
     img.save(qr_preview_path)
 
+    # <-- Mantener previsualización tal como estaba -->
     return render_template("seleccionar_firma.html", pdf_file=pdf_file.filename, nombre=nombre_titular)
 
 # ------------------ Generar PDF firmado (hora local) ------------------
@@ -243,6 +244,7 @@ def generar_pdf_firmado():
         sig_page = 0
     page = doc[sig_page]
 
+    # Insertar QR y texto exactamente como en tu código original
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
@@ -313,10 +315,13 @@ def generar_pdf_firmado():
     w = IncrementalPdfFileWriter(pdf_buffer)
     append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo))
     signer = PdfSigner(signature_meta, signer=cms_signer)
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], "documento_firmado.pdf")
 
-    # Descarga con el formato que quieres
+    with open(output_path, "wb") as outf:
+        signer.sign_pdf(w, output=outf)
+
     return send_file(
-        io.BytesIO(signer.sign_pdf(w, output=None).read()),
+        output_path,
         as_attachment=True,
         download_name="documento_firmado.pdf",
         mimetype="application/pdf"
