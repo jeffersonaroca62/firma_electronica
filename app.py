@@ -192,26 +192,10 @@ def generar_pdf_firmado():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
     p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
-    # Detectar zona horaria de la laptop automáticamente
+    # Hora local de la laptop con zona horaria
     from datetime import datetime
-    from zoneinfo import ZoneInfo
-    import platform
-    import io
-    import fitz
-    import qrcode
-    from pyhanko.sign import signers, timestamps
-    from pyhanko.sign.fields import SigFieldSpec, append_signature_field
-    from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
-    from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
-    from pyhanko.sign.signers.pdf_byterange import BuildProps
-    from cryptography.hazmat.primitives.serialization import pkcs12
-    from cryptography.x509.oid import NameOID
-    from textwrap import wrap
-    import uuid
-
-    # Hora local con zona horaria de tu laptop
-    local_tz = datetime.now().astimezone().tzinfo
-    fixed_dt = datetime.now(local_tz)
+    local_dt = datetime.now().astimezone()  # Detecta la zona horaria de la laptop
+    fecha_con_zona = local_dt.isoformat()   # Ej: 2025-09-19T16:38:14.987352-04:00
 
     # Leer certificado
     with open(p12_path, "rb") as f:
@@ -241,7 +225,7 @@ def generar_pdf_firmado():
         passphrase=p12_password.encode()
     )
 
-    # FixedDateSigner para hora local visual
+    # FixedDateSigner para hora local (visual en QR/texto)
     class FixedDateSigner(signers.SimpleSigner):
         def __init__(self, base, ts):
             super().__init__(
@@ -264,7 +248,7 @@ def generar_pdf_firmado():
                 timestamper=timestamper
             )
 
-    cms_signer = FixedDateSigner(base_signer, fixed_dt)
+    cms_signer = FixedDateSigner(base_signer, local_dt)
     nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
     signature_meta = PdfSignatureMetadata(
         field_name=nombre_campo,
@@ -280,18 +264,13 @@ def generar_pdf_firmado():
         sig_page = 0
     page = doc[sig_page]
 
-    # Generar QR con zona horaria incluida
-    qr = qrcode.QRCode(
-        version=2,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
-        box_size=10,
-        border=0
-    )
+    # Generar QR con hora local + zona horaria
+    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: {signature_meta.reason}\n"
         f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {fixed_dt.isoformat()}\n"  # <-- Zona horaria incluida
+        f"FECHA: {fecha_con_zona}\n"
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
     )
@@ -306,7 +285,7 @@ def generar_pdf_firmado():
     rect_qr = fitz.Rect(sig_x, sig_y, sig_x + qr_size, sig_y + qr_size)
     page.insert_image(rect_qr, stream=qr_buffer)
 
-    # Insertar texto junto al QR
+    # Insertar texto junto al QR (igual que antes)
     fontname = "Courier"
     nombre_fontsize = 6.5
     texto_fontsize = 3.5
@@ -362,7 +341,7 @@ def generar_pdf_firmado():
     signer = PdfSigner(
         signature_meta,
         signer=cms_signer,
-        timestamper=timestamps.HTTPTimeStamper("http://freetsa.org/tsr")
+        timestamper=timestamps.HTTPTimeStamper("http://freetsa.org/tsr")  # hora oficial
     )
     signer.sign_pdf(w, output=out_pdf)
     out_pdf.seek(0)
