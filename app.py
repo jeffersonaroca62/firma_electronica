@@ -333,7 +333,7 @@ def generar_pdf_firmado():
 
     # Firmar PDF con PyHanko
     w = IncrementalPdfFileWriter(pdf_buffer)
-    append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x + 120, sig_y + 40)))
+    append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(None)))
     out_pdf = io.BytesIO()
     signer = PdfSigner(signature_meta, signer=cms_signer)
     signer.sign_pdf(w, output=out_pdf)
