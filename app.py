@@ -13,12 +13,13 @@ from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
 from pyhanko.sign.signers.pdf_byterange import BuildProps
+from textwrap import wrap
 from flask_bcrypt import Bcrypt
 import sqlite3
 from functools import wraps
 from zoneinfo import ZoneInfo
 
-# --- Inicializar Flask ---
+# ------------------ Config Flask ------------------
 app = Flask(__name__)
 app.secret_key = "tu_clave_secreta_aqui"
 app.config['UPLOAD_FOLDER'] = "uploads"
@@ -27,16 +28,13 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 bcrypt = Bcrypt(app)
 
-# --- Inicializar DB automáticamente ---
+# ------------------ DB ------------------
 def get_db_connection():
-    if not os.path.exists("usuarios.db"):
-        from init_db import init_db
-        init_db()
-    conn = sqlite3.connect("usuarios.db")
+    conn = sqlite3.connect('usuarios.db')
     conn.row_factory = sqlite3.Row
     return conn
 
-# --- Decorador login_required ---
+# ------------------ Login required ------------------
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -45,7 +43,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# --- Registro ---
+# ------------------ Registro ------------------
 @app.route("/registro", methods=["GET", "POST"])
 def registro():
     if request.method == "POST":
@@ -74,7 +72,7 @@ def registro():
         return redirect(url_for('login'))
     return render_template("registro.html")
 
-# --- Login ---
+# ------------------ Login ------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -91,19 +89,19 @@ def login():
             return render_template("login.html", error="Usuario o contraseña incorrectos")
     return render_template("login.html")
 
-# --- Logout ---
+# ------------------ Logout ------------------
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# --- Página principal ---
+# ------------------ Página principal ------------------
 @app.route("/")
 @login_required
 def index():
     return render_template("index.html", username=session.get('username'))
 
-# --- Subir PDF y generar previsualización QR ---
+# ------------------ Subir PDF y generar previsualización de QR ------------------
 @app.route("/firmar", methods=["POST"])
 @login_required
 def firmar():
@@ -130,6 +128,7 @@ def firmar():
     session['p12_file'] = p12_file.filename
     session['p12_password'] = p12_password
 
+    # --- Generar QR preview como en tu código original ---
     qr_preview_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{pdf_file.filename}_preview_qr.png")
 
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
@@ -164,16 +163,9 @@ def firmar():
     img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
     img.save(qr_preview_path)
 
-    # <-- PREVISUALIZACION MANTENIDA TAL CUAL -->
-    return render_template(
-        "seleccionar_firma.html",
-        pdf_file=pdf_file.filename,
-        nombre=nombre_titular,
-        qr_preview=os.path.basename(qr_preview_path),
-        username=session.get('username')
-    )
+    return render_template("seleccionar_firma.html", pdf_file=pdf_file.filename, nombre=nombre_titular, qr_preview=os.path.basename(qr_preview_path))
 
-# --- Generar PDF firmado final ---
+# ------------------ Generar PDF firmado final (firma invisible) ------------------
 @app.route("/generar_pdf_firmado", methods=["POST"])
 @login_required
 def generar_pdf_firmado():
@@ -215,6 +207,7 @@ def generar_pdf_firmado():
         passphrase=p12_password.encode()
     )
 
+    # --- Firma con fecha fija ---
     class FixedDateSigner(signers.SimpleSigner):
         def __init__(self, base, ts):
             super().__init__(
@@ -239,14 +232,19 @@ def generar_pdf_firmado():
 
     cms_signer = FixedDateSigner(base_signer, fixed_dt)
     nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
+
+    # --- Metadata firma invisible ---
     signature_meta = PdfSignatureMetadata(
         field_name=nombre_campo,
         name=nombre_titular,
         reason="",
         location="",
+        mdp_setup=None,  # Sin permisos especiales, invisible
+        certify=False,
         app_build_props=BuildProps(name="Rúbrica 3.0")
     )
 
+    # --- Abrir PDF y agregar QR + texto ---
     doc = fitz.open(pdf_path)
     if sig_page >= len(doc):
         sig_page = 0
@@ -255,8 +253,8 @@ def generar_pdf_firmado():
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
-        f"RAZON: {signature_meta.reason}\n"
-        f"LOCALIZACION: {signature_meta.location}\n"
+        f"RAZON: \n"
+        f"LOCALIZACION: \n"
         f"FECHA: {fixed_dt.isoformat()}\n"
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
@@ -264,37 +262,84 @@ def generar_pdf_firmado():
     qr.add_data(qr_text)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+    qr_buffer = io.BytesIO()
+    qr_img.save(qr_buffer, format="PNG", optimize=True)
+    qr_buffer.seek(0)
 
-    temp_qr_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{uuid.uuid4().hex}.png")
-    qr_img.save(temp_qr_path)
-    pix = fitz.Pixmap(temp_qr_path)
-    rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
-    page.insert_image(rect, pixmap=pix, overlay=True)
-    os.remove(temp_qr_path)
+    qr_size = 40
+    rect_qr = fitz.Rect(sig_x, sig_y, sig_x + qr_size, sig_y + qr_size)
+    page.insert_image(rect_qr, stream=qr_buffer)
 
-    pdf_bytes = io.BytesIO()
-    doc.save(pdf_bytes)
+    # --- Texto junto al QR ---
+    fontname = "Courier"
+    nombre_fontsize = 6.5
+    texto_fontsize = 3.5
+    partes = nombre_titular.split()
+    if len(partes) > 2:
+        nombres_txt = " ".join(partes[:2])
+        apellidos_txt = " ".join(partes[2:])
+    elif len(partes) == 2:
+        nombres_txt, apellidos_txt = partes
+    else:
+        nombres_txt = nombre_titular
+        apellidos_txt = ""
+
+    lineas = [
+        ("Firmado electrónicamente por:", texto_fontsize, False),
+        (nombres_txt, nombre_fontsize, True),
+        (apellidos_txt, nombre_fontsize, True),
+        ("Validar únicamente con FirmaEC", texto_fontsize, False)
+    ]
+
+    def insertar_linea(page, texto, x, y, fontsize, bold, max_chars=35, spacing=0.5):
+        for linea in wrap(texto, width=max_chars):
+            color = (0,0,0) if bold else (0.2,0.2,0.2)
+            if bold:
+                page.insert_text((x, y), linea, fontsize=fontsize, fontname=fontname, color=color)
+                page.insert_text((x+0.2, y), linea, fontsize=fontsize, fontname=fontname, color=color)
+            else:
+                page.insert_text((x, y), linea, fontsize=fontsize, fontname=fontname, color=color)
+            y += fontsize + spacing + 1
+        return y
+
+    altura_total = 0
+    for texto, fontsize, bold in lineas:
+        n_wrap = max(1, len(wrap(texto, width=35)))
+        altura_total += n_wrap * (fontsize - 1)
+
+    y_text = sig_y + (qr_size - altura_total)/2
+    x_text = sig_x + qr_size + 0.5
+    for texto, fontsize, bold in lineas:
+        spacing = -2 if texto in [nombres_txt, apellidos_txt] else 0.5
+        y_text = insertar_linea(page, texto, x_text, y_text, fontsize, bold, spacing=spacing)
+
+    # --- Guardar PDF temporal ---
+    pdf_buffer = io.BytesIO()
+    doc.save(pdf_buffer)
     doc.close()
-    pdf_bytes.seek(0)
+    pdf_buffer.seek(0)
 
-    w = IncrementalPdfFileWriter(pdf_bytes)
-    append_signature_field(
-        w,
-        SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x + 120, sig_y + 40))
+    # --- Firma invisible ---
+    w = IncrementalPdfFileWriter(pdf_buffer)
+    append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(0,0,0,0)))  # Invisible
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], "documento_firmado.pdf")
+    signer = PdfSigner(signature_meta, signer=cms_signer)
+
+    with open(output_path, "wb") as outf:
+        signer.sign_pdf(w, output=outf)
+
+    return send_file(
+        output_path,
+        as_attachment=True,
+        download_name="documento_firmado.pdf",
+        mimetype="application/pdf"
     )
 
-    out_pdf = io.BytesIO()
-    signer = PdfSigner(signature_meta, signer=cms_signer)
-    signer.sign_pdf(w, output=out_pdf)
-    out_pdf.seek(0)
-
-    return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
-
-# --- Ruta uploads ---
+# ------------------ Ruta uploads ------------------
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-# --- Ejecutar ---
+# ------------------ Ejecutar ------------------
 if __name__ == "__main__":
     app.run(debug=True)
