@@ -13,7 +13,6 @@ from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
 from pyhanko.sign.signers.pdf_byterange import BuildProps
-from textwrap import wrap
 from flask_bcrypt import Bcrypt
 import sqlite3
 from functools import wraps
@@ -186,6 +185,7 @@ def generar_pdf_firmado():
         p12_data = f.read()
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
 
+    # Obtener nombre del titular
     nombre_titular = "DESCONOCIDO"
     try:
         given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
@@ -239,13 +239,12 @@ def generar_pdf_firmado():
         app_build_props=BuildProps(name="Rúbrica 3.0")
     )
 
+    # --- Abrir PDF y agregar QR en memoria ---
     doc = fitz.open(pdf_path)
     if sig_page >= len(doc):
         sig_page = 0
     page = doc[sig_page]
 
-    # --- Generar QR ---
-    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: {signature_meta.reason}\n"
@@ -254,32 +253,35 @@ def generar_pdf_firmado():
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
     )
+
+    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr.add_data(qr_text)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+    qr_bytes = io.BytesIO()
+    qr_img.save(qr_bytes, format="PNG")
+    qr_bytes.seek(0)
 
-    # --- Guardar QR temporal ---
-    temp_qr_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{uuid.uuid4().hex}.png")
-    qr_img.save(temp_qr_path)
-    pix = fitz.Pixmap(temp_qr_path)
+    pix = fitz.Pixmap(fitz.open("png", qr_bytes.read()))
     rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
     page.insert_image(rect, pixmap=pix, overlay=True)
-    os.remove(temp_qr_path)
 
-    doc.saveIncr()
+    pdf_modificado = io.BytesIO()
+    doc.save(pdf_modificado)
+    pdf_modificado.seek(0)
+    doc.close()
 
-    # --- Firmar digitalmente ---
+    # --- Firmar PDF en memoria ---
     out_pdf = io.BytesIO()
-    with open(pdf_path, "rb") as f:
-        w = IncrementalPdfFileWriter(f)
-        append_signature_field(
-            w,
-            SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
-        )
-        signer = PdfSigner(signature_meta, signer=cms_signer)
-        signer.sign_pdf(w, output=out_pdf)
-
+    w = IncrementalPdfFileWriter(pdf_modificado)
+    append_signature_field(
+        w,
+        SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
+    )
+    signer = PdfSigner(signature_meta, signer=cms_signer)
+    signer.sign_pdf(w, output=out_pdf)
     out_pdf.seek(0)
+
     return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
 
 # --- Ruta uploads ---
