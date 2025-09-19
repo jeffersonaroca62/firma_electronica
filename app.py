@@ -192,17 +192,17 @@ def generar_pdf_firmado():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
     p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
-    # Hora local de la laptop con zona horaria
-    from datetime import datetime
-    local_dt = datetime.now().astimezone()  # Detecta la zona horaria de la laptop
-    fecha_con_zona = local_dt.isoformat()   # Ej: 2025-09-19T16:38:14.987352-04:00
+    # ------------------ Hora local de la laptop ------------------
+    local_fecha = request.form.get("local_fecha")
+    from dateutil import parser
+    fixed_dt = parser.isoparse(local_fecha)  # convierte string ISO a datetime con zona horaria
 
-    # Leer certificado
+    # ------------------ Leer certificado ------------------
     with open(p12_path, "rb") as f:
         p12_data = f.read()
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
 
-    # Obtener nombre del titular
+    # ------------------ Obtener nombre del titular ------------------
     nombre_titular = "DESCONOCIDO"
     try:
         given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
@@ -219,13 +219,12 @@ def generar_pdf_firmado():
     except Exception:
         nombre_titular = certificate.subject.rfc4514_string()
 
-    # Cargar signer
+    # ------------------ Cargar signer ------------------
     base_signer = signers.SimpleSigner.load_pkcs12(
         pfx_file=p12_path,
         passphrase=p12_password.encode()
     )
 
-    # FixedDateSigner para hora local (visual en QR/texto)
     class FixedDateSigner(signers.SimpleSigner):
         def __init__(self, base, ts):
             super().__init__(
@@ -248,7 +247,7 @@ def generar_pdf_firmado():
                 timestamper=timestamper
             )
 
-    cms_signer = FixedDateSigner(base_signer, local_dt)
+    cms_signer = FixedDateSigner(base_signer, fixed_dt)
     nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
     signature_meta = PdfSignatureMetadata(
         field_name=nombre_campo,
@@ -258,19 +257,19 @@ def generar_pdf_firmado():
         app_build_props=BuildProps(name="Rúbrica 3.0")
     )
 
-    # Abrir PDF con PyMuPDF
+    # ------------------ Abrir PDF ------------------
     doc = fitz.open(pdf_path)
     if sig_page >= len(doc):
         sig_page = 0
     page = doc[sig_page]
 
-    # Generar QR con hora local + zona horaria
+    # ------------------ Generar QR ------------------
     qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
     qr_text = (
         f"FIRMADO POR: {nombre_titular}\n"
         f"RAZON: {signature_meta.reason}\n"
         f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {fecha_con_zona}\n"
+        f"FECHA: {local_fecha}\n"  # hora local de laptop
         f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
         f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
     )
@@ -285,7 +284,7 @@ def generar_pdf_firmado():
     rect_qr = fitz.Rect(sig_x, sig_y, sig_x + qr_size, sig_y + qr_size)
     page.insert_image(rect_qr, stream=qr_buffer)
 
-    # Insertar texto junto al QR (igual que antes)
+    # ------------------ Insertar texto junto al QR ------------------
     fontname = "Courier"
     nombre_fontsize = 6.5
     texto_fontsize = 3.5
@@ -328,20 +327,20 @@ def generar_pdf_firmado():
         spacing = -2 if texto in [nombres_txt, apellidos_txt] else 0.5
         y_text = insertar_linea(page, texto, x_text, y_text, fontsize, bold, spacing=spacing)
 
-    # Guardar PDF en memoria
+    # ------------------ Guardar PDF ------------------
     pdf_buffer = io.BytesIO()
     doc.save(pdf_buffer)
     doc.close()
     pdf_buffer.seek(0)
 
-    # Firmar PDF con PyHanko + timestamp oficial RFC3161
+    # ------------------ Firmar PDF con PyHanko + timestamp ------------------
     w = IncrementalPdfFileWriter(pdf_buffer)
     append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo))
     out_pdf = io.BytesIO()
     signer = PdfSigner(
         signature_meta,
         signer=cms_signer,
-        timestamper=timestamps.HTTPTimeStamper("http://freetsa.org/tsr")  # hora oficial
+        timestamper=timestamps.HTTPTimeStamper("http://freetsa.org/tsr")
     )
     signer.sign_pdf(w, output=out_pdf)
     out_pdf.seek(0)
