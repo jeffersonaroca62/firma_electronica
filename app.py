@@ -8,7 +8,7 @@ import qrcode
 import platform
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
-from pyhanko.sign import signers
+from pyhanko.sign import signers, timestamps
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
@@ -192,10 +192,11 @@ def generar_pdf_firmado():
     pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
     p12_path = os.path.join(app.config['UPLOAD_FOLDER'], p12_file)
 
+    # Hora local de tu laptop
     from zoneinfo import ZoneInfo
     fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
 
-
+    # Leer certificado
     with open(p12_path, "rb") as f:
         p12_data = f.read()
     _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
@@ -223,7 +224,7 @@ def generar_pdf_firmado():
         passphrase=p12_password.encode()
     )
 
-    # Clase para fijar la hora de firma
+    # FixedDateSigner para hora local visual (puedes dejarlo para QR/texto)
     class FixedDateSigner(signers.SimpleSigner):
         def __init__(self, base, ts):
             super().__init__(
@@ -304,7 +305,6 @@ def generar_pdf_firmado():
         ("Validar únicamente con FirmaEC", texto_fontsize, False)
     ]
 
-    from textwrap import wrap
     def insertar_linea(page, texto, x, y, fontsize, bold, max_chars=35, spacing=0.5):
         for linea in wrap(texto, width=max_chars):
             color = (0,0,0) if bold else (0.2,0.2,0.2)
@@ -333,15 +333,18 @@ def generar_pdf_firmado():
     doc.close()
     pdf_buffer.seek(0)
 
-    # Firmar PDF con PyHanko
+    # Firmar PDF con PyHanko + timestamp oficial RFC3161
     w = IncrementalPdfFileWriter(pdf_buffer)
-    append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo, box=(None)))
+    append_signature_field(w, SigFieldSpec(sig_field_name=nombre_campo))
     out_pdf = io.BytesIO()
-    signer = PdfSigner(signature_meta, signer=cms_signer)
+    signer = PdfSigner(
+        signature_meta,
+        signer=cms_signer,
+        timestamper=timestamps.HTTPTimeStamper("http://freetsa.org/tsr")  # hora oficial
+    )
     signer.sign_pdf(w, output=out_pdf)
     out_pdf.seek(0)
 
-    # Devolver PDF al usuario
     return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
 
 
