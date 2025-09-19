@@ -3,7 +3,6 @@ import io
 import uuid
 from datetime import datetime
 from flask import Flask, render_template, request, send_file, session, redirect, url_for
-import fitz
 import qrcode
 import platform
 from cryptography.hazmat.primitives.serialization import pkcs12
@@ -12,11 +11,13 @@ from pyhanko.sign import signers
 from pyhanko.sign.fields import SigFieldSpec, append_signature_field
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign.signers.pdf_signer import PdfSigner, PdfSignatureMetadata
-from pyhanko.sign.signers.pdf_byterange import BuildProps
 from flask_bcrypt import Bcrypt
 import sqlite3
 from functools import wraps
 from zoneinfo import ZoneInfo
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from PyPDF2 import PdfReader, PdfWriter
 
 # --- Inicializar Flask ---
 app = Flask(__name__)
@@ -181,11 +182,9 @@ def generar_pdf_firmado():
 
     fixed_dt = datetime.now(ZoneInfo("America/Guayaquil"))
 
-    with open(p12_path, "rb") as f:
-        p12_data = f.read()
-    _, certificate, _ = pkcs12.load_key_and_certificates(p12_data, p12_password.encode())
+    # --- Cargar certificado ---
+    _, certificate, _ = pkcs12.load_key_and_certificates(open(p12_path, "rb").read(), p12_password.encode())
 
-    # Obtener nombre del titular
     nombre_titular = "DESCONOCIDO"
     try:
         given_names = certificate.subject.get_attributes_for_oid(NameOID.GIVEN_NAME)
@@ -202,86 +201,68 @@ def generar_pdf_firmado():
     except Exception:
         nombre_titular = certificate.subject.rfc4514_string()
 
+    # --- Generar QR ---
+    qr_text = (
+        f"FIRMADO POR: {nombre_titular}\n"
+        f"FECHA: {fixed_dt.isoformat()}\n"
+        f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
+        f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
+    )
+    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
+    qr.add_data(qr_text)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white")
+
+    # --- Guardar QR en PDF temporal ---
+    temp_qr_pdf = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_qr_{uuid.uuid4().hex}.pdf")
+    c = canvas.Canvas(temp_qr_pdf, pagesize=letter)
+    qr_img_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_qr_{uuid.uuid4().hex}.png")
+    qr_img.save(qr_img_path)
+    c.drawImage(qr_img_path, sig_x, sig_y, width=100, height=100, mask='auto')
+    c.showPage()
+    c.save()
+    os.remove(qr_img_path)
+
+    # --- Combinar PDF original con QR ---
+    original_pdf = PdfReader(pdf_path)
+    qr_pdf = PdfReader(temp_qr_pdf)
+    writer = PdfWriter()
+
+    for i, page in enumerate(original_pdf.pages):
+        writer.add_page(page)
+        if i == sig_page:
+            writer.pages[i].merge_page(qr_pdf.pages[0])
+
+    temp_pdf_with_qr = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_with_qr_{uuid.uuid4().hex}.pdf")
+    with open(temp_pdf_with_qr, "wb") as f_out:
+        writer.write(f_out)
+    os.remove(temp_qr_pdf)
+
+    # --- Firmar PDF ---
     base_signer = signers.SimpleSigner.load_pkcs12(
         pfx_file=p12_path,
         passphrase=p12_password.encode()
     )
-
-    class FixedDateSigner(signers.SimpleSigner):
-        def __init__(self, base, ts):
-            super().__init__(
-                signing_cert=base.signing_cert,
-                signing_key=base.signing_key,
-                cert_registry=base.cert_registry,
-                signature_mechanism=base.signature_mechanism,
-                prefer_pss=base.prefer_pss
-            )
-            self.fixed_ts = ts
-
-        def sign(self, data_digest, digest_algorithm, timestamp=None,
-                 revocation_info=None, use_pades=False, timestamper=None):
-            return super().sign(
-                data_digest,
-                digest_algorithm,
-                timestamp=self.fixed_ts,
-                revocation_info=revocation_info,
-                use_pades=use_pades,
-                timestamper=timestamper
-            )
-
-    cms_signer = FixedDateSigner(base_signer, fixed_dt)
     nombre_campo = f"Signature_{uuid.uuid4().hex[:8]}"
     signature_meta = PdfSignatureMetadata(
         field_name=nombre_campo,
         name=nombre_titular,
         reason="",
         location="",
-        app_build_props=BuildProps(name="Rúbrica 3.0")
     )
 
-    # --- Abrir PDF y agregar QR en memoria ---
-    doc = fitz.open(pdf_path)
-    if sig_page >= len(doc):
-        sig_page = 0
-    page = doc[sig_page]
-
-    qr_text = (
-        f"FIRMADO POR: {nombre_titular}\n"
-        f"RAZON: {signature_meta.reason}\n"
-        f"LOCALIZACION: {signature_meta.location}\n"
-        f"FECHA: {fixed_dt.isoformat()}\n"
-        f"VALIDAR CON: https://www.firmadigital.gob.ec\n"
-        f"Firmado digitalmente con FirmaEC 4.0.1 {platform.system()} {platform.release()}"
-    )
-
-    qr = qrcode.QRCode(version=2, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=0)
-    qr.add_data(qr_text)
-    qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
-    qr_bytes = io.BytesIO()
-    qr_img.save(qr_bytes, format="PNG")
-    qr_bytes.seek(0)
-
-    pix = fitz.Pixmap(fitz.open("png", qr_bytes.read()))
-    rect = fitz.Rect(sig_x, sig_y, sig_x + 40, sig_y + 40)
-    page.insert_image(rect, pixmap=pix, overlay=True)
-
-    pdf_modificado = io.BytesIO()
-    doc.save(pdf_modificado)
-    pdf_modificado.seek(0)
-    doc.close()
-
-    # --- Firmar PDF en memoria ---
     out_pdf = io.BytesIO()
-    w = IncrementalPdfFileWriter(pdf_modificado)
-    append_signature_field(
-        w,
-        SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
-    )
-    signer = PdfSigner(signature_meta, signer=cms_signer)
-    signer.sign_pdf(w, output=out_pdf)
-    out_pdf.seek(0)
+    with open(temp_pdf_with_qr, "rb") as f:
+        w = IncrementalPdfFileWriter(f)
+        append_signature_field(
+            w,
+            SigFieldSpec(sig_field_name=nombre_campo, box=(sig_x, sig_y, sig_x+120, sig_y+40))
+        )
+        signer = PdfSigner(signature_meta, signer=base_signer)
+        signer.sign_pdf(w, output=out_pdf)
+    os.remove(temp_pdf_with_qr)
 
+    out_pdf.seek(0)
     return send_file(out_pdf, download_name=f"firmado_{pdf_file}", as_attachment=True)
 
 # --- Ruta uploads ---
