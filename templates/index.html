@@ -50,39 +50,40 @@ Paso 5: Haz clic en “Generar documento firmado”.
 </div>
 <div class="mb-3">
 <label class="form-label">Zona horaria</label>
-<select class="form-select" name="zona_horaria" required>
+<select class="form-select" name="user_timezone" required>
+
   <!-- América -->
-  <option value="America/Guayaquil" selected>Ecuador (Guayaquil)</option>
-  <option value="America/Bogota">Colombia (Bogotá)</option>
-  <option value="America/Lima">Perú (Lima)</option>
-  <option value="America/New_York">EE. UU. (Nueva York)</option>
-  <option value="America/Chicago">EE. UU. (Chicago)</option>
-  <option value="America/Denver">EE. UU. (Denver)</option>
-  <option value="America/Los_Angeles">EE. UU. (Los Ángeles)</option>
-  <option value="America/Sao_Paulo">Brasil (São Paulo)</option>
-  <option value="America/Mexico_City">México (Ciudad de México)</option>
+  <option value="America/Guayaquil" selected>Ecuador (Guayaquil) UTC-05:00</option>
+  <option value="America/Bogota">Colombia (Bogotá) UTC-05:00</option>
+  <option value="America/Lima">Perú (Lima) UTC-05:00</option>
+  <option value="America/New_York">EE. UU. (Nueva York) UTC-04:00</option>
+  <option value="America/Chicago">EE. UU. (Chicago) UTC-05:00</option>
+  <option value="America/Denver">EE. UU. (Denver) UTC-06:00</option>
+  <option value="America/Los_Angeles">EE. UU. (Los Ángeles) UTC-07:00</option>
+  <option value="America/Sao_Paulo">Brasil (São Paulo) UTC-03:00</option>
+  <option value="America/Mexico_City">México (Ciudad de México) UTC-06:00</option>
 
   <!-- Europa -->
-  <option value="Europe/London">Reino Unido (Londres)</option>
-  <option value="Europe/Paris">Francia (París)</option>
-  <option value="Europe/Madrid">España (Madrid)</option>
-  <option value="Europe/Berlin">Alemania (Berlín)</option>
-  <option value="Europe/Moscow">Rusia (Moscú)</option>
+  <option value="Europe/London">Reino Unido (Londres) UTC+01:00</option>
+  <option value="Europe/Paris">Francia (París) UTC+02:00</option>
+  <option value="Europe/Madrid">España (Madrid) UTC+02:00</option>
+  <option value="Europe/Berlin">Alemania (Berlín) UTC+02:00</option>
+  <option value="Europe/Moscow">Rusia (Moscú) UTC+03:00</option>
 
   <!-- Asia -->
-  <option value="Asia/Tokyo">Japón (Tokio)</option>
-  <option value="Asia/Shanghai">China (Shanghai)</option>
-  <option value="Asia/Singapore">Singapur</option>
-  <option value="Asia/Dubai">Emiratos Árabes Unidos (Dubai)</option>
-  <option value="Asia/Kolkata">India (Kolkata)</option>
+  <option value="Asia/Tokyo">Japón (Tokio) UTC+09:00</option>
+  <option value="Asia/Shanghai">China (Shanghai) UTC+08:00</option>
+  <option value="Asia/Singapore">Singapur UTC+08:00</option>
+  <option value="Asia/Dubai">Emiratos Árabes Unidos (Dubai) UTC+04:00</option>
+  <option value="Asia/Kolkata">India (Kolkata) UTC+05:30</option>
 
   <!-- Oceanía -->
-  <option value="Australia/Sydney">Australia (Sydney)</option>
-  <option value="Australia/Melbourne">Australia (Melbourne)</option>
-  <option value="Pacific/Auckland">Nueva Zelanda (Auckland)</option>
+  <option value="Australia/Sydney">Australia (Sydney) UTC+10:00</option>
+  <option value="Australia/Melbourne">Australia (Melbourne) UTC+10:00</option>
+  <option value="Pacific/Auckland">Nueva Zelanda (Auckland) UTC+12:00</option>
 
   <!-- UTC -->
-  <option value="UTC">UTC</option>
+  <option value="UTC">UTC+00:00</option>
 </select>
 </div>
 <button type="submit" class="btn btn-primary btn-upload">📄 Generar documento firmado</button>
