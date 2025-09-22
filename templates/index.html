@@ -32,7 +32,8 @@ body { background-color: #f8f9fa; }
 Paso 1: Selecciona tu PDF.<br>
 Paso 2: Selecciona tu certificado P12 o PFX.<br>
 Paso 3: Ingresa la contraseña del certificado.<br>
-Paso 4: Haz clic en “Generar documento firmado”.
+Paso 4: Elige la zona horaria.<br>
+Paso 5: Haz clic en “Generar documento firmado”.
 </p>
 <form id="firmarForm" method="POST" action="/firmar" enctype="multipart/form-data">
 <div class="mb-3">
@@ -46,6 +47,16 @@ Paso 4: Haz clic en “Generar documento firmado”.
 <div class="mb-3">
 <label class="form-label">Contraseña del certificado</label>
 <input type="password" class="form-control" name="p12_password" placeholder="Contraseña" required>
+</div>
+<div class="mb-3">
+<label class="form-label">Zona horaria</label>
+<select class="form-select" name="zona_horaria" required>
+  <option value="America/Guayaquil" selected>Ecuador (Guayaquil)</option>
+  <option value="America/New_York">New York</option>
+  <option value="Europe/Madrid">Madrid</option>
+  <option value="Asia/Tokyo">Tokyo</option>
+  <option value="UTC">UTC</option>
+</select>
 </div>
 <button type="submit" class="btn btn-primary btn-upload">📄 Generar documento firmado</button>
 </form>
