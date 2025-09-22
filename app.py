@@ -322,7 +322,6 @@ def generar_pdf_firmado():
         (nombres_txt, nombre_fontsize, True),
         (apellidos_txt, nombre_fontsize, True),
         ("Validar únicamente con FirmaEC", texto_fontsize, False),
-        (f"FECHA: {fecha_final}", texto_fontsize, False)
     ]
 
     def insertar_linea(page, texto, x, y, fontsize, bold, max_chars=35, spacing=0.5):
